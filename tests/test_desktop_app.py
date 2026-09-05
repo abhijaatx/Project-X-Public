@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ class DesktopAppTests(unittest.TestCase):
     def test_lan_is_the_default_desktop_mode(self):
         self.assertEqual(desktop_app.DEFAULT_MODE, "lan")
 
+    @unittest.skipUnless(os.name == "posix", "macOS path semantics require POSIX")
     @patch.object(desktop_app.sys, "frozen", True, create=True)
     @patch.object(desktop_app.sys, "platform", "darwin")
     def test_macos_frozen_app_must_run_from_applications(self):
