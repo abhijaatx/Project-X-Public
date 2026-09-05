@@ -7,7 +7,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="/static/style.css?v=20260905-mobile-latency3">
+  <link rel="stylesheet" href="/static/style.css?v=20260905-dialog-drag4">
 </head>
 <body>
   <!-- PIN Login Overlay -->
@@ -135,7 +135,13 @@
 
   <div id="type-text-modal" class="type-text-overlay" hidden>
     <section class="type-text-dialog" role="dialog" aria-modal="true" aria-labelledby="type-text-title" aria-describedby="type-text-help">
-      <div class="type-text-header">
+      <div
+        id="type-text-drag-handle"
+        class="type-text-header"
+        tabindex="0"
+        aria-label="Move text entry window. Use arrow keys to reposition; press Home to center."
+        title="Drag to move · Arrow keys to nudge · Home to center"
+      >
         <div>
           <h2 id="type-text-title">Type on host</h2>
           <p id="type-text-help">Text will be entered as keystrokes in the currently focused host field.</p>
@@ -169,6 +175,6 @@
     </section>
   </div>
 
-    <script src="/static/app.js?v=20260905-mobile-latency3"></script>
+    <script src="/static/app.js?v=20260905-dialog-drag4"></script>
 </body>
 </html>

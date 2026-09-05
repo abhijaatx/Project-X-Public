@@ -414,8 +414,7 @@ body, html {
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: rgba(2, 6, 23, 0.72);
-  backdrop-filter: blur(8px);
+  background: rgba(2, 6, 23, 0.28);
 }
 
 .type-text-dialog {
@@ -426,6 +425,7 @@ body, html {
   border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 1rem;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  will-change: transform;
 }
 
 .type-text-header,
@@ -439,6 +439,20 @@ body, html {
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1rem;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+
+.type-text-header:active,
+.type-text-dialog.is-dragging .type-text-header {
+  cursor: grabbing;
+}
+
+.type-text-header:focus-visible {
+  border-radius: 0.55rem;
+  outline: 2px solid #60a5fa;
+  outline-offset: 0.3rem;
 }
 
 .type-text-header h2 {

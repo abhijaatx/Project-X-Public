@@ -32,6 +32,8 @@
   const camCtx = camCanvas ? camCanvas.getContext("2d") : null;
   const btnPaste = document.getElementById("btn-paste");
   const typeTextModal = document.getElementById("type-text-modal");
+  const typeTextDialog = typeTextModal?.querySelector(".type-text-dialog");
+  const typeTextDragHandle = document.getElementById("type-text-drag-handle");
   const typeTextInput = document.getElementById("type-text-input");
   const typeTextSend = document.getElementById("type-text-send");
   const typeTextCancel = document.getElementById("type-text-cancel");
@@ -1089,6 +1091,108 @@
   const fileUploader = document.getElementById("file-uploader");
 
   if (btnPaste) {
+    const TYPE_DIALOG_MARGIN = 12;
+    let typeDialogOffsetX = 0;
+    let typeDialogOffsetY = 0;
+    let typeDialogDrag = null;
+    let typeDialogAnimationFrame = 0;
+
+    const applyTypeDialogOffset = (offsetX, offsetY) => {
+      if (!typeTextDialog) return;
+      const rect = typeTextDialog.getBoundingClientRect();
+      const baseLeft = (window.innerWidth - rect.width) / 2;
+      const baseTop = (window.innerHeight - rect.height) / 2;
+      typeDialogOffsetX = Math.max(
+        TYPE_DIALOG_MARGIN - baseLeft,
+        Math.min(window.innerWidth - rect.width - TYPE_DIALOG_MARGIN - baseLeft, offsetX)
+      );
+      typeDialogOffsetY = Math.max(
+        TYPE_DIALOG_MARGIN - baseTop,
+        Math.min(window.innerHeight - rect.height - TYPE_DIALOG_MARGIN - baseTop, offsetY)
+      );
+      typeTextDialog.style.transform = `translate3d(${Math.round(typeDialogOffsetX)}px, ${Math.round(typeDialogOffsetY)}px, 0)`;
+    };
+
+    const resetTypeDialogPosition = () => {
+      typeDialogOffsetX = 0;
+      typeDialogOffsetY = 0;
+      typeTextDialog?.style.removeProperty("transform");
+    };
+
+    const scheduleTypeDialogMove = (clientX, clientY) => {
+      if (!typeDialogDrag) return;
+      typeDialogDrag.clientX = clientX;
+      typeDialogDrag.clientY = clientY;
+      if (typeDialogAnimationFrame) return;
+      typeDialogAnimationFrame = requestAnimationFrame(() => {
+        typeDialogAnimationFrame = 0;
+        if (!typeDialogDrag) return;
+        applyTypeDialogOffset(
+          typeDialogDrag.offsetX + typeDialogDrag.clientX - typeDialogDrag.startX,
+          typeDialogDrag.offsetY + typeDialogDrag.clientY - typeDialogDrag.startY
+        );
+      });
+    };
+
+    const finishTypeDialogMove = (event) => {
+      if (!typeDialogDrag || event.pointerId !== typeDialogDrag.pointerId) return;
+      scheduleTypeDialogMove(event.clientX, event.clientY);
+      if (typeDialogAnimationFrame) {
+        cancelAnimationFrame(typeDialogAnimationFrame);
+        typeDialogAnimationFrame = 0;
+        applyTypeDialogOffset(
+          typeDialogDrag.offsetX + event.clientX - typeDialogDrag.startX,
+          typeDialogDrag.offsetY + event.clientY - typeDialogDrag.startY
+        );
+      }
+      typeDialogDrag = null;
+      typeTextDialog?.classList.remove("is-dragging");
+    };
+
+    if (typeTextDialog && typeTextDragHandle) {
+      typeTextDragHandle.addEventListener("pointerdown", (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        if (event.target.closest("button, input, textarea, select, a")) return;
+        event.preventDefault();
+        typeDialogDrag = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          offsetX: typeDialogOffsetX,
+          offsetY: typeDialogOffsetY
+        };
+        typeTextDialog.classList.add("is-dragging");
+        typeTextDragHandle.setPointerCapture?.(event.pointerId);
+      });
+      window.addEventListener("pointermove", (event) => {
+        if (typeDialogDrag && event.pointerId === typeDialogDrag.pointerId) {
+          scheduleTypeDialogMove(event.clientX, event.clientY);
+        }
+      });
+      window.addEventListener("pointerup", finishTypeDialogMove);
+      window.addEventListener("pointercancel", finishTypeDialogMove);
+      typeTextDragHandle.addEventListener("dblclick", resetTypeDialogPosition);
+      typeTextDragHandle.addEventListener("keydown", (event) => {
+        if (event.key === "Home") {
+          event.preventDefault();
+          resetTypeDialogPosition();
+          return;
+        }
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        const amount = event.shiftKey ? 40 : 10;
+        applyTypeDialogOffset(
+          typeDialogOffsetX + (event.key === "ArrowLeft" ? -amount : event.key === "ArrowRight" ? amount : 0),
+          typeDialogOffsetY + (event.key === "ArrowUp" ? -amount : event.key === "ArrowDown" ? amount : 0)
+        );
+      });
+      window.addEventListener("resize", () => {
+        if (!typeTextModal.hidden) applyTypeDialogOffset(typeDialogOffsetX, typeDialogOffsetY);
+      });
+    }
+
     const closeTypeTextDialog = () => {
       if (activeTypingRequest && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "cancel_typing" }));
