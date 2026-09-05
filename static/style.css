@@ -418,7 +418,15 @@ body, html {
 }
 
 .type-text-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   width: min(560px, 100%);
+  min-width: min(340px, calc(100vw - 2rem));
+  min-height: min(420px, calc(100vh - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
   padding: 1.25rem;
   color: #e2e8f0;
   background: #111827;
@@ -493,6 +501,7 @@ body, html {
 }
 
 #type-text-input {
+  flex: 1 1 9rem;
   width: 100%;
   min-height: 9rem;
   resize: vertical;
@@ -504,6 +513,41 @@ body, html {
   outline: none;
   font: 0.9rem/1.5 ui-monospace, 'SFMono-Regular', Consolas, monospace;
   user-select: text;
+}
+
+.type-text-resize-handle {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.2rem;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  color: #94a3b8;
+  background: transparent;
+  border: 0;
+  border-radius: 0.45rem;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.type-text-resize-handle:hover,
+.type-text-resize-handle:focus-visible {
+  color: #e2e8f0;
+  background: #1e293b;
+  outline: 2px solid #60a5fa;
+  outline-offset: 1px;
+}
+
+.type-text-resize-handle svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
 }
 
 #type-text-input:focus {

@@ -34,6 +34,7 @@
   const typeTextModal = document.getElementById("type-text-modal");
   const typeTextDialog = typeTextModal?.querySelector(".type-text-dialog");
   const typeTextDragHandle = document.getElementById("type-text-drag-handle");
+  const typeTextResizeHandle = document.getElementById("type-text-resize-handle");
   const typeTextInput = document.getElementById("type-text-input");
   const typeTextSend = document.getElementById("type-text-send");
   const typeTextCancel = document.getElementById("type-text-cancel");
@@ -1113,6 +1114,15 @@
     let typeDialogOffsetY = 0;
     let typeDialogDrag = null;
     let typeDialogAnimationFrame = 0;
+    let typeDialogResize = null;
+    let typeDialogResizeAnimationFrame = 0;
+
+    const typeDialogSizeLimits = () => ({
+      minWidth: Math.min(340, window.innerWidth - TYPE_DIALOG_MARGIN * 2),
+      minHeight: Math.min(420, window.innerHeight - TYPE_DIALOG_MARGIN * 2),
+      maxWidth: window.innerWidth - TYPE_DIALOG_MARGIN * 2,
+      maxHeight: window.innerHeight - TYPE_DIALOG_MARGIN * 2
+    });
 
     const applyTypeDialogOffset = (offsetX, offsetY) => {
       if (!typeTextDialog) return;
@@ -1134,6 +1144,25 @@
       typeDialogOffsetX = 0;
       typeDialogOffsetY = 0;
       typeTextDialog?.style.removeProperty("transform");
+    };
+
+    const applyTypeDialogSize = (width, height, anchorLeft, anchorTop) => {
+      if (!typeTextDialog) return;
+      const limits = typeDialogSizeLimits();
+      const nextWidth = Math.max(limits.minWidth, Math.min(limits.maxWidth, width));
+      const nextHeight = Math.max(limits.minHeight, Math.min(limits.maxHeight, height));
+      typeTextDialog.style.width = `${Math.round(nextWidth)}px`;
+      typeTextDialog.style.height = `${Math.round(nextHeight)}px`;
+      const baseLeft = (window.innerWidth - nextWidth) / 2;
+      const baseTop = (window.innerHeight - nextHeight) / 2;
+      applyTypeDialogOffset(anchorLeft - baseLeft, anchorTop - baseTop);
+    };
+
+    const resetTypeDialogSize = () => {
+      if (!typeTextDialog) return;
+      typeTextDialog.style.removeProperty("width");
+      typeTextDialog.style.removeProperty("height");
+      applyTypeDialogOffset(typeDialogOffsetX, typeDialogOffsetY);
     };
 
     const scheduleTypeDialogMove = (clientX, clientY) => {
@@ -1164,6 +1193,40 @@
       }
       typeDialogDrag = null;
       typeTextDialog?.classList.remove("is-dragging");
+    };
+
+    const scheduleTypeDialogResize = (clientX, clientY) => {
+      if (!typeDialogResize) return;
+      typeDialogResize.clientX = clientX;
+      typeDialogResize.clientY = clientY;
+      if (typeDialogResizeAnimationFrame) return;
+      typeDialogResizeAnimationFrame = requestAnimationFrame(() => {
+        typeDialogResizeAnimationFrame = 0;
+        if (!typeDialogResize) return;
+        applyTypeDialogSize(
+          typeDialogResize.width + typeDialogResize.clientX - typeDialogResize.startX,
+          typeDialogResize.height + typeDialogResize.clientY - typeDialogResize.startY,
+          typeDialogResize.left,
+          typeDialogResize.top
+        );
+      });
+    };
+
+    const finishTypeDialogResize = (event) => {
+      if (!typeDialogResize || event.pointerId !== typeDialogResize.pointerId) return;
+      scheduleTypeDialogResize(event.clientX, event.clientY);
+      if (typeDialogResizeAnimationFrame) {
+        cancelAnimationFrame(typeDialogResizeAnimationFrame);
+        typeDialogResizeAnimationFrame = 0;
+        applyTypeDialogSize(
+          typeDialogResize.width + event.clientX - typeDialogResize.startX,
+          typeDialogResize.height + event.clientY - typeDialogResize.startY,
+          typeDialogResize.left,
+          typeDialogResize.top
+        );
+      }
+      typeDialogResize = null;
+      typeTextDialog?.classList.remove("is-resizing");
     };
 
     if (typeTextDialog && typeTextDragHandle) {
@@ -1206,7 +1269,60 @@
         );
       });
       window.addEventListener("resize", () => {
-        if (!typeTextModal.hidden) applyTypeDialogOffset(typeDialogOffsetX, typeDialogOffsetY);
+        if (typeTextModal.hidden) return;
+        const rect = typeTextDialog.getBoundingClientRect();
+        if (typeTextDialog.style.width || typeTextDialog.style.height) {
+          applyTypeDialogSize(rect.width, rect.height, rect.left, rect.top);
+        } else {
+          applyTypeDialogOffset(typeDialogOffsetX, typeDialogOffsetY);
+        }
+      });
+    }
+
+    if (typeTextDialog && typeTextResizeHandle) {
+      typeTextResizeHandle.addEventListener("pointerdown", (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = typeTextDialog.getBoundingClientRect();
+        typeDialogResize = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height
+        };
+        typeTextDialog.classList.add("is-resizing");
+        typeTextResizeHandle.setPointerCapture?.(event.pointerId);
+      });
+      window.addEventListener("pointermove", (event) => {
+        if (typeDialogResize && event.pointerId === typeDialogResize.pointerId) {
+          scheduleTypeDialogResize(event.clientX, event.clientY);
+        }
+      });
+      window.addEventListener("pointerup", finishTypeDialogResize);
+      window.addEventListener("pointercancel", finishTypeDialogResize);
+      typeTextResizeHandle.addEventListener("dblclick", resetTypeDialogSize);
+      typeTextResizeHandle.addEventListener("keydown", (event) => {
+        if (event.key === "Home") {
+          event.preventDefault();
+          resetTypeDialogSize();
+          return;
+        }
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        const amount = event.shiftKey ? 80 : 20;
+        const rect = typeTextDialog.getBoundingClientRect();
+        applyTypeDialogSize(
+          rect.width + (event.key === "ArrowLeft" ? -amount : event.key === "ArrowRight" ? amount : 0),
+          rect.height + (event.key === "ArrowUp" ? -amount : event.key === "ArrowDown" ? amount : 0),
+          rect.left,
+          rect.top
+        );
       });
     }
 
