@@ -49,18 +49,73 @@ function Test-Python([string]$Executable, [string[]]$PrefixArgs = @()) {
     }
 }
 
-function Install-WingetPackage([string]$Id) {
+function Install-WingetPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Id,
+        [switch]$Force
+    )
     $winget = Find-Executable @("winget.exe", "winget")
     if (-not $winget) {
         throw "winget is unavailable. Install $Id from its official vendor, then run this command again."
     }
     Write-Host "[Project X] Installing $Id..."
-    & $winget install --id $Id --exact --source winget `
-        --accept-source-agreements --accept-package-agreements
+    $wingetArgs = @(
+        "install", "--id", $Id, "--exact", "--source", "winget",
+        "--accept-source-agreements", "--accept-package-agreements"
+    )
+    if ($Force) {
+        $wingetArgs += "--force"
+    }
+    & $winget @wingetArgs
     if ($LASTEXITCODE -ne 0) {
         throw "winget could not install $Id (exit code $LASTEXITCODE)."
     }
     Refresh-ProcessPath
+}
+
+function Remove-IncompleteVenv([string]$VenvDir, [string]$VenvPython) {
+    if ((Test-Path $VenvDir) -and -not (Test-Path $VenvPython)) {
+        Write-Host "[Project X] Removing the incomplete Python environment..."
+        Remove-Item -LiteralPath $VenvDir -Recurse -Force
+    }
+}
+
+function New-ProjectVenv(
+    [string]$VenvDir,
+    [string]$VenvPython,
+    [string]$Launcher,
+    [bool]$LauncherReady,
+    [string]$PythonExecutable,
+    [bool]$PythonReady
+) {
+    Remove-IncompleteVenv $VenvDir $VenvPython
+
+    if ($LauncherReady) {
+        Write-Host "[Project X] Trying Python 3.12 through the py launcher..."
+        & $Launcher -3.12 -m venv $VenvDir
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $VenvPython)) {
+            return $true
+        }
+        Remove-IncompleteVenv $VenvDir $VenvPython
+
+        Write-Host "[Project X] Trying the newest Python from the py launcher..."
+        & $Launcher -3 -m venv $VenvDir
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $VenvPython)) {
+            return $true
+        }
+        Remove-IncompleteVenv $VenvDir $VenvPython
+    }
+
+    if ($PythonReady) {
+        Write-Host "[Project X] Trying $PythonExecutable..."
+        & $PythonExecutable -m venv $VenvDir
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $VenvPython)) {
+            return $true
+        }
+        Remove-IncompleteVenv $VenvDir $VenvPython
+    }
+    return $false
 }
 
 Write-Host "[Project X] Checking Windows prerequisites..."
@@ -118,19 +173,41 @@ if (Test-Path (Join-Path $ProjectDir ".git")) {
 }
 
 Set-Location $ProjectDir
-$venvPython = Join-Path $ProjectDir ".venv\Scripts\python.exe"
+$venvDir = Join-Path $ProjectDir ".venv"
+$venvPython = Join-Path $venvDir "Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
     Write-Host "[Project X] Creating the Python environment..."
-    if ($pythonLauncherReady) {
-        & $pythonLauncher -3.12 -m venv (Join-Path $ProjectDir ".venv")
-        if ($LASTEXITCODE -ne 0) {
-            & $pythonLauncher -3 -m venv (Join-Path $ProjectDir ".venv")
+    $created = New-ProjectVenv `
+        $venvDir $venvPython `
+        $pythonLauncher $pythonLauncherReady `
+        $python $pythonReady
+
+    if (-not $created) {
+        Write-Warning "The existing Python installation cannot create virtual environments."
+        Install-WingetPackage "Python.Python.3.12" -Force
+
+        $pythonLauncher = Find-Executable @("py.exe", "py")
+        $pythonLauncherReady = Test-Python $pythonLauncher @("-3")
+        $python = Find-Executable @("python.exe", "python")
+        $officialPythonCandidates = @(
+            (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"),
+            (Join-Path $env:ProgramFiles "Python312\python.exe")
+        )
+        foreach ($candidate in $officialPythonCandidates) {
+            if (Test-Python $candidate) {
+                $python = $candidate
+                break
+            }
         }
-    } else {
-        & $python -m venv (Join-Path $ProjectDir ".venv")
+        $pythonReady = Test-Python $python
+
+        $created = New-ProjectVenv `
+            $venvDir $venvPython `
+            $pythonLauncher $pythonLauncherReady `
+            $python $pythonReady
     }
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $venvPython)) {
-        throw "Python could not create the .venv environment."
+    if (-not $created -or -not (Test-Path $venvPython)) {
+        throw "Official Python 3.12 could not create the .venv environment. Restart Windows and run the same command again."
     }
 }
 
