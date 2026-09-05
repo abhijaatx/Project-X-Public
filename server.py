@@ -1236,7 +1236,22 @@ def start_tunnel_prompt(port):
 
 def create_app(pin="1234", port=5000):
     server = RemoteServer(pin=pin, port=port)
-    app = web.Application()
+
+    @web.middleware
+    async def prevent_stale_viewer_assets(request, handler):
+        response = await handler(request)
+        if request.path == "/" or request.path.startswith("/static/"):
+            # A viewer can remain open while the host is upgraded. On its next
+            # reload it must fetch the matching HTML, JavaScript, and CSS rather
+            # than revive an obsolete latency pipeline from browser cache.
+            response.headers["Cache-Control"] = (
+                "no-store, no-cache, must-revalidate, max-age=0"
+            )
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
+    app = web.Application(middlewares=[prevent_stale_viewer_assets])
     app.router.add_get("/ws", server.ws_handler)
     app.router.add_get("/ws/media", server.media_ws_handler)
     
