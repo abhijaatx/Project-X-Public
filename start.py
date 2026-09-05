@@ -37,7 +37,8 @@ def find_cloudflared() -> str:
     raise RuntimeError(f"cloudflared was not found. {install_hint}")
 
 
-def wait_for_server(process: subprocess.Popen, port: int, timeout: float = 15.0) -> None:
+def wait_for_server(process: subprocess.Popen, port: int, timeout: float = 120.0) -> None:
+    """Wait through slow first-run native media-library loading."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
