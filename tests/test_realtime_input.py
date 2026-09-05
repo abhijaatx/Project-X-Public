@@ -2,12 +2,49 @@ import json
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from server import ClientSession, RemoteServer, configured_ice_servers
 
 
 class RealtimeInputTests(unittest.IsolatedAsyncioTestCase):
+    async def test_precision_scroll_accumulates_before_windows_wheel_step(self):
+        server = RemoteServer.__new__(RemoteServer)
+        session = ClientSession(monitor_id=1)
+
+        with patch("server.macos_input", None), patch("server.mouse.scroll") as scroll:
+            for _ in range(4):
+                await RemoteServer.handle_input_message(
+                    server,
+                    {"type": "mouse_wheel", "deltaY": 20, "deltaMode": 0},
+                    None,
+                    session,
+                )
+            scroll.assert_not_called()
+
+            await RemoteServer.handle_input_message(
+                server,
+                {"type": "mouse_wheel", "deltaY": 20, "deltaMode": 0},
+                None,
+                session,
+            )
+            scroll.assert_called_once_with(0, -1)
+            self.assertAlmostEqual(session.scroll_remainder, 0.0)
+
+    async def test_windows_scroll_caps_large_browser_delta(self):
+        server = RemoteServer.__new__(RemoteServer)
+        session = ClientSession(monitor_id=1)
+
+        with patch("server.macos_input", None), patch("server.mouse.scroll") as scroll:
+            await RemoteServer.handle_input_message(
+                server,
+                {"type": "mouse_wheel", "deltaY": -2000, "deltaMode": 0},
+                None,
+                session,
+            )
+
+            scroll.assert_called_once_with(0, 3)
+
     async def test_jpeg_stream_limits_unacknowledged_frames_and_resumes(self):
         class Transport:
             def get_write_buffer_size(self):

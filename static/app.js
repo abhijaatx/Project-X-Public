@@ -51,6 +51,8 @@
   let lastFpsTime = performance.now();
   let pendingPointerMove = null;
   let pointerMoveScheduled = false;
+  let pendingWheelDelta = 0;
+  let wheelScheduled = false;
   let pingInterval = null;
   let remoteWidth = 1920;
   let remoteHeight = 1080;
@@ -969,7 +971,22 @@
   canvas.addEventListener("wheel", (e) => {
     if (!isConnected) return;
     e.preventDefault();
-    sendRealtimeInput({ type: "mouse_wheel", deltaY: e.deltaY }, true);
+    const pixelMultiplier = e.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? 16
+      : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? window.innerHeight
+        : 1;
+    pendingWheelDelta += e.deltaY * pixelMultiplier;
+    if (wheelScheduled) return;
+    wheelScheduled = true;
+    requestAnimationFrame(() => {
+      wheelScheduled = false;
+      const deltaY = pendingWheelDelta;
+      pendingWheelDelta = 0;
+      if (deltaY) {
+        sendRealtimeInput({ type: "mouse_wheel", deltaY, deltaMode: 0 }, true);
+      }
+    });
   }, { passive: false });
 
   // Keyboard Input Events

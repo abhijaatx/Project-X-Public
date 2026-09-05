@@ -280,6 +280,7 @@ class ClientSession:
     camera_enabled: bool = False
     microphone_enabled: bool = False
     frame_ack_event: object = field(default_factory=asyncio.Event)
+    scroll_remainder: float = 0.0
     pending_mouse_move: dict | None = None
     mouse_move_task: object | None = None
     mouse_lock: object = field(default_factory=asyncio.Lock)
@@ -302,6 +303,8 @@ class RemoteServer:
     # The viewer acknowledges rendered or deliberately dropped frames, keeping
     # network and decoder queues short without reducing healthy-LAN frame rate.
     MAX_JPEG_FRAMES_IN_FLIGHT = 4
+    SCROLL_PIXELS_PER_STEP = 100.0
+    MAX_SCROLL_STEPS_PER_EVENT = 3
 
     def __init__(self, pin="1234", port=5000):
         self.pin = str(pin)
@@ -727,7 +730,33 @@ class RemoteServer:
             if macos_input is not None:
                 macos_input.scroll(delta_y)
             else:
-                await asyncio.to_thread(mouse.scroll, 0, -2 if delta_y > 0 else 2)
+                # Precision trackpads emit many small pixel deltas. Converting
+                # every event into two full Windows wheel notches makes a tiny
+                # Mac gesture jump several pages. Accumulate those pixels into
+                # discrete notches and cap unusually large browser bursts.
+                delta_mode = int(data.get("deltaMode", 0))
+                pixel_multiplier = {0: 1.0, 1: 16.0, 2: 800.0}.get(
+                    delta_mode, 1.0
+                )
+                pixel_delta = max(
+                    -self.SCROLL_PIXELS_PER_STEP * self.MAX_SCROLL_STEPS_PER_EVENT,
+                    min(
+                        self.SCROLL_PIXELS_PER_STEP
+                        * self.MAX_SCROLL_STEPS_PER_EVENT,
+                        delta_y * pixel_multiplier,
+                    ),
+                )
+                accumulated = session.scroll_remainder + (
+                    pixel_delta / self.SCROLL_PIXELS_PER_STEP
+                )
+                accumulated = max(
+                    -float(self.MAX_SCROLL_STEPS_PER_EVENT),
+                    min(float(self.MAX_SCROLL_STEPS_PER_EVENT), accumulated),
+                )
+                steps = int(accumulated)
+                session.scroll_remainder = accumulated - steps
+                if steps:
+                    await asyncio.to_thread(mouse.scroll, 0, -steps)
 
         elif event_type in {"key_down", "key_up"}:
             if macos_input is not None and macos_input.key(
