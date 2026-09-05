@@ -1,0 +1,23 @@
+# Binary executables
+*.exe
+cloudflared.exe
+ngrok.exe
+vendor/
+build/
+dist/
+release/
+*.spec.bak
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+.env
+venv/
+.venv/
+
+# macOS metadata
+.DS_Store

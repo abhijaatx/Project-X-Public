@@ -1,0 +1,17 @@
+aiohttp>=3.9.0
+aiofiles>=24.1.0
+mss>=10.2.0,<12
+Pillow>=10.0.0
+pynput>=1.7.6
+pyperclip>=1.9.0,<2
+opencv-python>=4.8.0
+numpy>=1.26.0
+simplejpeg>=1.9.0,<2
+sounddevice>=0.5.0,<1
+aiortc>=1.15.0,<2
+av>=14.0.0,<17
+dxcam[winrt]>=0.3.0,<1; sys_platform == "win32"
+pyobjc-framework-ScreenCaptureKit>=12.2.2; sys_platform == "darwin"
+pyobjc-framework-AVFoundation>=12.2.2; sys_platform == "darwin"
+pyobjc-framework-CoreMedia>=12.2.2; sys_platform == "darwin"
+pystray>=0.19.5,<1

@@ -1,0 +1,52 @@
+name: Build Project X desktop apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  macos-arm64:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install and test
+        run: python -m pip install -r requirements.txt && python -m unittest discover -s tests -v
+      - name: Build Project X for macOS arm64
+        run: chmod +x packaging/build-macos.sh && packaging/build-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Project-X-macOS-arm64
+          path: release/*.dmg
+          if-no-files-found: error
+
+  windows-x64:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install and test
+        run: python -m pip install -r requirements.txt && python -m unittest discover -s tests -v
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build Project X for Windows x64
+        shell: powershell
+        run: .\packaging\build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Project-X-Windows-x64
+          path: |
+            release/Project-X-Setup.exe
+            release/Project-X-Windows-x64-Portable.zip
+          if-no-files-found: error

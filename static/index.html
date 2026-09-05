@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Project X - Remote Desktop</title>
+  <link rel="stylesheet" href="/static/style.css?v=20260901-low-latency2">
+</head>
+<body>
+  <!-- PIN Login Overlay -->
+  <div id="auth-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="logo-icon">💻</div>
+      <h2>Project X</h2>
+      <p class="subtitle">Enter Host Security PIN to Connect</p>
+      
+      <div class="pin-input-group">
+        <input type="password" id="pin-input" placeholder="••••" maxlength="8" autofocus autocomplete="off">
+        <button id="btn-connect" class="primary-btn">Connect</button>
+      </div>
+      <div id="auth-error" class="error-msg"></div>
+    </div>
+  </div>
+
+  <!-- Main Remote Viewport -->
+  <div id="remote-container">
+    <video id="screen-video" autoplay playsinline muted></video>
+    <canvas id="screen-canvas" tabindex="0"></canvas>
+    <div id="local-cursor" aria-hidden="true"></div>
+
+    <!-- Floating Top Toolbar -->
+    <div id="toolbar" class="floating-toolbar">
+      <button type="button" class="toolbar-drag-handle" aria-label="Move toolbar" title="Drag to move · Double-click to reset">
+        <svg viewBox="0 0 16 20" aria-hidden="true">
+          <circle cx="5" cy="4" r="1.25"></circle>
+          <circle cx="11" cy="4" r="1.25"></circle>
+          <circle cx="5" cy="10" r="1.25"></circle>
+          <circle cx="11" cy="10" r="1.25"></circle>
+          <circle cx="5" cy="16" r="1.25"></circle>
+          <circle cx="11" cy="16" r="1.25"></circle>
+        </svg>
+      </button>
+
+      <div class="stats-badge">
+        <span class="status-indicator"></span>
+        <span id="stat-ping">-- ms</span>
+        <span class="separator">|</span>
+        <span id="stat-fps">-- fps</span>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Quality Controls -->
+      <div class="toolbar-group">
+        <label for="quality-select">Quality:</label>
+        <select id="quality-select">
+          <option value="low">Fast (Speed)</option>
+          <option value="med" selected>Sharp &amp; Fast (90%)</option>
+          <option value="high">Native (100%)</option>
+          <option value="max">Ultra (100%)</option>
+        </select>
+      </div>
+
+      <div class="toolbar-group">
+        <label for="fps-select">FPS:</label>
+        <select id="fps-select">
+          <option value="15">15 FPS</option>
+          <option value="30" selected>30 FPS</option>
+        </select>
+      </div>
+
+      <div class="toolbar-group">
+        <label for="transport-select">Mode:</label>
+        <select id="transport-select">
+          <option value="webrtc" selected>Turbo H.264</option>
+          <option value="jpeg">JPEG Compatibility</option>
+        </select>
+      </div>
+
+      <div class="toolbar-group">
+        <label for="mic-volume-select">Mic:</label>
+        <select id="mic-volume-select" title="Host microphone playback volume">
+          <option value="1">100%</option>
+          <option value="2">200%</option>
+          <option value="3" selected>300%</option>
+          <option value="4">400%</option>
+        </select>
+      </div>
+
+      <div class="toolbar-group" id="monitor-group" style="display: none;">
+        <label for="monitor-select">Screen:</label>
+        <select id="monitor-select"></select>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Quick Action Buttons -->
+      <div class="toolbar-actions">
+        <button id="btn-win" class="tool-btn" title="Windows Key">⊞ Win</button>
+        <button id="btn-cad" class="tool-btn" title="Ctrl+Alt+Delete">CAD</button>
+        <button id="btn-alttab" class="tool-btn" title="Alt+Tab">Alt+Tab</button>
+        <button id="btn-cam" class="tool-btn" title="Toggle Host Webcam">📹 Camera</button>
+        <button id="btn-mic" class="tool-btn" title="Listen to Host Microphone">🎤 Listen</button>
+        <button id="btn-paste" class="tool-btn" title="Type text into the focused host field">⌨ Type Text</button>
+        <button id="btn-upload" class="tool-btn" title="Send File to PC">📁 Send File</button>
+        <button id="btn-kbd" class="tool-btn mobile-only" title="Toggle Keyboard">⌨</button>
+        <button id="btn-fullscreen" class="tool-btn" title="Toggle Fullscreen">⛶</button>
+        <button id="btn-disconnect" class="tool-btn danger" title="Disconnect">✕</button>
+      </div>
+
+      <button type="button" class="toolbar-resize-handle" aria-label="Resize toolbar" title="Drag horizontally to resize">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5 13h8V5M8 13l5-5M11 13l2-2"></path>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Floating Picture-in-Picture Webcam Stream -->
+    <div id="pip-cam" class="pip-cam-card" style="display: none;">
+      <div class="pip-cam-header" id="pip-drag-handle">
+        <span class="pip-title">📹 Host Camera</span>
+        <button id="pip-close" class="pip-close-btn" title="Turn Off Camera">✕</button>
+      </div>
+      <canvas id="cam-canvas"></canvas>
+    </div>
+
+    <!-- Hidden file input for file transfer -->
+    <input type="file" id="file-uploader" style="display: none;">
+    <!-- Hidden input for mobile keyboard support -->
+    <input type="text" id="mobile-key-input" class="hidden-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+  </div>
+
+  <div id="type-text-modal" class="type-text-overlay" hidden>
+    <section class="type-text-dialog" role="dialog" aria-modal="true" aria-labelledby="type-text-title" aria-describedby="type-text-help">
+      <div class="type-text-header">
+        <div>
+          <h2 id="type-text-title">Type on host</h2>
+          <p id="type-text-help">Text will be entered as keystrokes in the currently focused host field.</p>
+        </div>
+        <button id="type-text-close" class="type-text-close" type="button" aria-label="Close text entry">✕</button>
+      </div>
+      <label class="type-text-label" for="type-text-input">Text to type</label>
+      <textarea id="type-text-input" maxlength="10000" rows="7" placeholder="Enter or paste text here…" spellcheck="true"></textarea>
+      <div class="type-speed-row">
+        <label for="type-speed-input">Typing speed</label>
+        <div class="type-speed-control">
+          <input id="type-speed-input" type="number" min="1" max="1000" step="1" value="40" inputmode="numeric" aria-describedby="type-speed-hint">
+          <span>chars/sec</span>
+        </div>
+        <p id="type-speed-hint">1–120 in Code-Safe Mode</p>
+      </div>
+      <label class="code-safe-toggle" for="type-code-mode">
+        <input id="type-code-mode" type="checkbox" checked>
+        <span>
+          <strong>Code-Safe Mode</strong>
+          <small>Exact indentation, editor auto-indent protection, and safer symbol timing.</small>
+        </span>
+      </label>
+      <div class="type-text-footer">
+        <p id="type-text-status" class="type-text-status" role="status" aria-live="polite">Ctrl/⌘ + Enter to send</p>
+        <div class="type-text-actions">
+          <button id="type-text-cancel" class="secondary-btn" type="button">Cancel</button>
+          <button id="type-text-send" class="primary-btn type-text-send" type="button">Type on host</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+    <script src="/static/app.js?v=20260901-low-latency2"></script>
+</body>
+</html>
