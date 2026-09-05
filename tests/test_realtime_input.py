@@ -4,11 +4,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from server import RemoteServer, configured_ice_servers
+from server import ClientSession, RemoteServer, configured_ice_servers
 
 
 class RealtimeInputTests(unittest.IsolatedAsyncioTestCase):
-    async def test_jpeg_stream_does_not_wait_for_render_ack(self):
+    async def test_jpeg_stream_limits_unacknowledged_frames_and_resumes(self):
         class Transport:
             def get_write_buffer_size(self):
                 return 0
@@ -25,11 +25,12 @@ class RealtimeInputTests(unittest.IsolatedAsyncioTestCase):
 
             async def send_bytes(self, payload):
                 self.frames.append(payload)
-                if len(self.frames) >= 2:
+                if len(self.frames) >= RemoteServer.MAX_JPEG_FRAMES_IN_FLIGHT + 1:
                     self.closed = True
 
         class Server:
             MEDIA_WRITE_BUFFER_LIMIT = RemoteServer.MEDIA_WRITE_BUFFER_LIMIT
+            MAX_JPEG_FRAMES_IN_FLIGHT = RemoteServer.MAX_JPEG_FRAMES_IN_FLIGHT
 
             def __init__(self):
                 self.calls = 0
@@ -40,18 +41,51 @@ class RealtimeInputTests(unittest.IsolatedAsyncioTestCase):
 
         server = Server()
         socket = Socket()
-        session = SimpleNamespace(use_webrtc=False, target_fps=30)
-        # The old implementation would block indefinitely until this event was
-        # set by a browser render ACK.  Leave it unset to exercise the new path.
+        session = SimpleNamespace(use_webrtc=False, target_fps=60)
         ack_event = asyncio.Event()
-
-        await asyncio.wait_for(
-            RemoteServer.stream_worker(server, socket, ack_event, session),
-            timeout=1,
+        task = asyncio.create_task(
+            RemoteServer.stream_worker(server, socket, ack_event, session)
+        )
+        await asyncio.sleep(0.15)
+        self.assertEqual(
+            len(socket.frames), RemoteServer.MAX_JPEG_FRAMES_IN_FLIGHT
+        )
+        ack_event.set()
+        await asyncio.wait_for(task, timeout=1)
+        self.assertEqual(
+            len(socket.frames), RemoteServer.MAX_JPEG_FRAMES_IN_FLIGHT + 1
         )
 
-        self.assertGreaterEqual(len(socket.frames), 2)
-        self.assertGreaterEqual(server.calls, 2)
+    async def test_rising_route_delay_triggers_media_backpressure(self):
+        class WebRTC:
+            def __init__(self):
+                self.degraded = []
+
+            def set_session_media_health(self, _session, degraded):
+                self.degraded.append(degraded)
+
+        server = RemoteServer.__new__(RemoteServer)
+        server.webrtc = WebRTC()
+        session = ClientSession(monitor_id=1)
+        ws = AsyncMock()
+        healthy = {
+            "type": "media_stats",
+            "packetLoss": 0,
+            "jitter": 0.005,
+            "fps": 30,
+            "routeRtt": 0.01,
+            "routeType": "host",
+        }
+        queued = {**healthy, "routeRtt": 0.25}
+
+        await RemoteServer.handle_input_message(server, healthy, ws, session)
+        await RemoteServer.handle_input_message(server, queued, ws, session)
+        await RemoteServer.handle_input_message(server, queued, ws, session)
+
+        self.assertEqual(session.best_route_rtt_ms, 10.0)
+        self.assertEqual(session.last_route_rtt_ms, 250.0)
+        self.assertLess(session.webrtc_scale, session.requested_scale)
+        self.assertTrue(server.webrtc.degraded[-1])
 
     async def test_reliable_channel_executes_and_acknowledges_input(self):
         handler = AsyncMock()

@@ -267,6 +267,7 @@ class ClientSession:
     last_media_jitter_ms: float = 0.0
     last_media_loss_percent: float = 0.0
     last_route_rtt_ms: float | None = None
+    best_route_rtt_ms: float | None = None
     last_route_type: str = "unknown"
     input_count: int = 0
     input_processing_total_ms: float = 0.0
@@ -275,6 +276,7 @@ class ClientSession:
     media_ws: object | None = None
     camera_enabled: bool = False
     microphone_enabled: bool = False
+    frame_ack_event: object = field(default_factory=asyncio.Event)
     pending_mouse_move: dict | None = None
     mouse_move_task: object | None = None
     mouse_lock: object = field(default_factory=asyncio.Lock)
@@ -293,6 +295,10 @@ class RemoteServer:
     # accumulating a stale multi-second queue while allowing frames to flow at
     # the requested cadence on a healthy LAN.
     MEDIA_WRITE_BUFFER_LIMIT = 512 * 1024
+    # Limit application-level JPEG work as well as the socket's byte buffer.
+    # The viewer acknowledges rendered or deliberately dropped frames, keeping
+    # network and decoder queues short without reducing healthy-LAN frame rate.
+    MAX_JPEG_FRAMES_IN_FLIGHT = 4
 
     def __init__(self, pin="1234", port=5000):
         self.pin = str(pin)
@@ -401,6 +407,14 @@ class RemoteServer:
                     session.last_media_loss_percent, 2
                 ),
                 "route_rtt_ms": session.last_route_rtt_ms,
+                "route_queue_delay_ms": round(
+                    max(
+                        0.0,
+                        (session.last_route_rtt_ms or 0.0)
+                        - (session.best_route_rtt_ms or 0.0),
+                    ),
+                    1,
+                ),
                 "route_type": session.last_route_type,
                 "input_count": session.input_count,
                 "input_processing_avg_ms": round(
@@ -782,22 +796,35 @@ class RemoteServer:
             session.last_media_jitter_ms = jitter * 1000
             session.last_media_loss_percent = packet_loss * 100
             route_rtt = data.get("routeRtt")
+            route_type = str(data.get("routeType", "unknown"))[:16]
+            route_queue_delay_ms = 0.0
             if route_rtt is not None:
-                session.last_route_rtt_ms = round(
-                    max(0.0, float(route_rtt)) * 1000,
-                    1,
+                route_rtt_ms = round(max(0.0, float(route_rtt)) * 1000, 1)
+                if route_type != session.last_route_type:
+                    session.best_route_rtt_ms = route_rtt_ms
+                elif (
+                    session.best_route_rtt_ms is None
+                    or route_rtt_ms < session.best_route_rtt_ms
+                ):
+                    session.best_route_rtt_ms = route_rtt_ms
+                session.last_route_rtt_ms = route_rtt_ms
+                route_queue_delay_ms = max(
+                    0.0, route_rtt_ms - (session.best_route_rtt_ms or route_rtt_ms)
                 )
-            session.last_route_type = str(data.get("routeType", "unknown"))[:16]
+            session.last_route_type = route_type
             session.media_report_count += 1
+            target_fps = max(5, min(30, int(session.target_fps)))
             degraded = (
                 packet_loss > 0.05
                 or jitter > 0.04
-                or (rendered_fps > 0 and rendered_fps < 22)
+                or (rendered_fps > 0 and rendered_fps < target_fps * 0.73)
+                or route_queue_delay_ms > 120
             )
             healthy = (
                 packet_loss < 0.01
                 and jitter < 0.03
-                and rendered_fps >= 27
+                and rendered_fps >= target_fps * 0.90
+                and route_queue_delay_ms < 50
             )
             if degraded:
                 session.bitrate_bad_reports += 1
@@ -950,22 +977,25 @@ class RemoteServer:
                 self.microphone_task = None
 
     async def stream_worker(self, ws, ack_event, session):
-        """Send latest JPEG frames with bounded transport back-pressure.
+        """Send latest JPEG frames with bounded end-to-end back-pressure.
 
-        ``frame_ack`` remains accepted for compatibility with older viewers,
-        but it is intentionally not used as a send gate.  A TCP/WebSocket ACK
-        is a render *round-trip*, so using it as the producer clock adds the
-        network RTT to every frame.  ``send_bytes`` plus the transport buffer
-        cap gives us bounded latest-frame delivery without that latency tax.
+        A small frame window keeps a healthy LAN running at its requested FPS
+        while preventing slow networks or decoders from accumulating seconds
+        of stale screen updates. The socket byte cap remains a second guard.
         """
-        del ack_event
         sequence = 0
+        frames_in_flight = 0
         loop = asyncio.get_running_loop()
         next_send_at = loop.time()
         while not ws.closed:
+            if ack_event.is_set():
+                ack_event.clear()
+                frames_in_flight = max(0, frames_in_flight - 1)
+
             if session.use_webrtc:
                 await asyncio.sleep(0.2)
                 next_send_at = loop.time()
+                frames_in_flight = 0
                 continue
 
             interval = 1.0 / max(5, min(30, int(session.target_fps)))
@@ -979,6 +1009,14 @@ class RemoteServer:
             if next_send_at < now - interval:
                 next_send_at = now
             next_send_at += interval
+
+            if frames_in_flight >= self.MAX_JPEG_FRAMES_IN_FLIGHT:
+                try:
+                    await asyncio.wait_for(ack_event.wait(), timeout=0.25)
+                except asyncio.TimeoutError:
+                    pass
+                next_send_at = loop.time()
+                continue
 
             writer = getattr(ws, "_writer", None)
             transport = getattr(writer, "transport", None)
@@ -1003,6 +1041,7 @@ class RemoteServer:
             if frame and not ws.closed:
                 try:
                     await ws.send_bytes(b'\x01' + frame)
+                    frames_in_flight += 1
                 except Exception:
                     break
 
@@ -1093,7 +1132,7 @@ class RemoteServer:
 
                     elif session.authenticated:
                         if msg_type == "frame_ack":
-                            ack_event.set()
+                            session.frame_ack_event.set()
                         elif msg_type == "ping":
                             await ws.send_json({"type": "pong", "time": data.get("time")})
                         else:
@@ -1149,7 +1188,8 @@ class RemoteServer:
         if previous and previous is not ws and not previous.closed:
             await previous.close(code=1001, message=b"Media channel replaced")
         session.media_ws = ws
-        ack_event = asyncio.Event()
+        ack_event = session.frame_ack_event
+        ack_event.clear()
         stream_task = asyncio.create_task(self.stream_worker(ws, ack_event, session))
 
         if session.camera_enabled:

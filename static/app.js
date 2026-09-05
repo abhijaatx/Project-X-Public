@@ -59,6 +59,8 @@
   let uploadToken = null;
   let cameraRenderBusy = false;
   let pendingCameraBlob = null;
+  let screenRenderBusy = false;
+  let pendingScreenBlob = null;
   let isMicrophoneOn = false;
   let audioContext = null;
   let audioGainNode = null;
@@ -181,7 +183,7 @@
       const bytes = new Uint8Array(buffer);
       const tag = bytes[0];
       if (tag === 1) {
-        renderFrame(new Blob([bytes.subarray(1)], { type: "image/jpeg" }));
+        queueScreenFrame(new Blob([bytes.subarray(1)], { type: "image/jpeg" }));
       } else if (tag === 2) {
         queueCamFrame(new Blob([bytes.subarray(1)], { type: "image/jpeg" }));
       } else if (tag === 3) {
@@ -348,26 +350,49 @@
         }
       }
 
-      const img = new Image();
-      const url = URL.createObjectURL(blob);
-      img.onload = () => {
-        if (canvas.width !== img.width || canvas.height !== img.height) {
-          canvas.width = img.width;
-          canvas.height = img.height;
-        }
-        ctx.drawImage(img, 0, 0);
-        URL.revokeObjectURL(url);
-        trackFps();
-        sendFrameAck();
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        sendFrameAck();
-      };
-      img.src = url;
+      await new Promise((resolve) => {
+        const img = new Image();
+        const url = URL.createObjectURL(blob);
+        img.onload = () => {
+          if (canvas.width !== img.width || canvas.height !== img.height) {
+            canvas.width = img.width;
+            canvas.height = img.height;
+          }
+          ctx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(url);
+          trackFps();
+          sendFrameAck();
+          resolve();
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          sendFrameAck();
+          resolve();
+        };
+        img.src = url;
+      });
     } catch (e) {
       console.error("Frame render error:", e);
       sendFrameAck();
+    }
+  }
+
+  async function queueScreenFrame(blob) {
+    // Decode at most one screen frame while retaining only the newest pending
+    // frame. Acknowledge a superseded frame so the host's bounded send window
+    // remains accurate without ever rendering stale work.
+    if (pendingScreenBlob) sendFrameAck();
+    pendingScreenBlob = blob;
+    if (screenRenderBusy) return;
+    screenRenderBusy = true;
+    try {
+      while (pendingScreenBlob) {
+        const latestFrame = pendingScreenBlob;
+        pendingScreenBlob = null;
+        await renderFrame(latestFrame);
+      }
+    } finally {
+      screenRenderBusy = false;
     }
   }
 
@@ -853,7 +878,8 @@
 
   function sendRealtimeInput(payload, reliable = false) {
     const channel = reliable ? controlDataChannel : pointerDataChannel;
-    if (channel && channel.readyState === "open") {
+    const controlChannelBackedUp = reliable && channel?.bufferedAmount > 8 * 1024;
+    if (channel && channel.readyState === "open" && !controlChannelBackedUp) {
       if (!reliable && channel.bufferedAmount > 16 * 1024) return;
       if (reliable) {
         payload.input_id = ++inputSequence;
@@ -864,6 +890,11 @@
       }
       channel.send(JSON.stringify(payload));
       return;
+    }
+    if (controlChannelBackedUp) {
+      // Old acknowledgements from the congested channel no longer describe
+      // the active control path and would make the latency badge keep rising.
+      pendingInputTimes.clear();
     }
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(payload));
