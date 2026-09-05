@@ -254,6 +254,7 @@ class ClientSession:
     quality: int = 55
     scale: float = 0.85
     target_fps: int = 30
+    requested_fps: int = 30
     upload_token: str | None = None
     auth_failures: int = 0
     use_webrtc: bool = False
@@ -268,6 +269,8 @@ class ClientSession:
     last_media_loss_percent: float = 0.0
     last_route_rtt_ms: float | None = None
     best_route_rtt_ms: float | None = None
+    last_control_rtt_ms: float | None = None
+    best_control_rtt_ms: float | None = None
     last_route_type: str = "unknown"
     input_count: int = 0
     input_processing_total_ms: float = 0.0
@@ -400,6 +403,7 @@ class RemoteServer:
                 "remote_address": session.remote_address,
                 "webrtc": session.use_webrtc,
                 "target_fps": session.target_fps,
+                "requested_fps": session.requested_fps,
                 "scale": round(session.webrtc_scale, 2),
                 "media_fps": round(session.last_media_fps, 1),
                 "media_jitter_ms": round(session.last_media_jitter_ms, 1),
@@ -416,6 +420,7 @@ class RemoteServer:
                     1,
                 ),
                 "route_type": session.last_route_type,
+                "control_rtt_ms": session.last_control_rtt_ms,
                 "input_count": session.input_count,
                 "input_processing_avg_ms": round(
                     session.input_processing_total_ms / max(1, session.input_count),
@@ -786,7 +791,8 @@ class RemoteServer:
             session.requested_scale = session.scale
             # An explicit user preset immediately resets adaptive scaling.
             session.webrtc_scale = session.requested_scale
-            session.target_fps = max(5, min(60, int(data.get("fps", 30))))
+            session.requested_fps = max(5, min(30, int(data.get("fps", 30))))
+            session.target_fps = session.requested_fps
 
         elif event_type == "media_stats":
             packet_loss = max(0.0, float(data.get("packetLoss", 0)))
@@ -812,19 +818,35 @@ class RemoteServer:
                     0.0, route_rtt_ms - (session.best_route_rtt_ms or route_rtt_ms)
                 )
             session.last_route_type = route_type
+            control_queue_delay_ms = 0.0
+            control_rtt = data.get("controlRttMs")
+            if control_rtt is not None:
+                control_rtt_ms = max(0.0, float(control_rtt))
+                if (
+                    session.best_control_rtt_ms is None
+                    or control_rtt_ms < session.best_control_rtt_ms
+                ):
+                    session.best_control_rtt_ms = control_rtt_ms
+                session.last_control_rtt_ms = round(control_rtt_ms, 1)
+                control_queue_delay_ms = max(
+                    0.0,
+                    control_rtt_ms
+                    - (session.best_control_rtt_ms or control_rtt_ms),
+                )
+            queue_delay_ms = max(route_queue_delay_ms, control_queue_delay_ms)
             session.media_report_count += 1
             target_fps = max(5, min(30, int(session.target_fps)))
             degraded = (
                 packet_loss > 0.05
                 or jitter > 0.04
                 or (rendered_fps > 0 and rendered_fps < target_fps * 0.73)
-                or route_queue_delay_ms > 120
+                or queue_delay_ms > 120
             )
             healthy = (
                 packet_loss < 0.01
                 and jitter < 0.03
                 and rendered_fps >= target_fps * 0.90
-                and route_queue_delay_ms < 50
+                and queue_delay_ms < 50
             )
             if degraded:
                 session.bitrate_bad_reports += 1
@@ -832,6 +854,7 @@ class RemoteServer:
                 session.good_media_reports = 0
                 if session.bad_media_reports >= 2:
                     session.webrtc_scale = max(0.55, session.webrtc_scale - 0.1)
+                    session.target_fps = min(session.target_fps, 15)
                     session.bad_media_reports = 0
             elif healthy:
                 session.bitrate_bad_reports = 0
@@ -841,6 +864,10 @@ class RemoteServer:
                     session.webrtc_scale = min(
                         session.requested_scale, session.webrtc_scale + 0.05
                     )
+                    if session.target_fps < session.requested_fps:
+                        session.target_fps = min(
+                            session.requested_fps, session.target_fps + 5
+                        )
                     session.good_media_reports = 0
             else:
                 session.bitrate_bad_reports = 0
@@ -861,6 +888,7 @@ class RemoteServer:
             await ws.send_json({
                 "type": "adaptive_quality",
                 "scale": round(session.webrtc_scale, 2),
+                "fps": session.target_fps,
             })
 
         elif event_type == "media_transport":
@@ -1239,16 +1267,17 @@ def create_app(pin="1234", port=5000):
 
     @web.middleware
     async def prevent_stale_viewer_assets(request, handler):
+        if request.path != "/" and not request.path.startswith("/static/"):
+            return await handler(request)
         response = await handler(request)
-        if request.path == "/" or request.path.startswith("/static/"):
-            # A viewer can remain open while the host is upgraded. On its next
-            # reload it must fetch the matching HTML, JavaScript, and CSS rather
-            # than revive an obsolete latency pipeline from browser cache.
-            response.headers["Cache-Control"] = (
-                "no-store, no-cache, must-revalidate, max-age=0"
-            )
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
+        # A viewer can remain open while the host is upgraded. On its next
+        # reload it must fetch the matching HTML, JavaScript, and CSS rather
+        # than revive an obsolete latency pipeline from browser cache.
+        response.headers["Cache-Control"] = (
+            "no-store, no-cache, must-revalidate, max-age=0"
+        )
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
         return response
 
     app = web.Application(middlewares=[prevent_stale_viewer_assets])

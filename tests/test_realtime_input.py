@@ -85,6 +85,7 @@ class RealtimeInputTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.best_route_rtt_ms, 10.0)
         self.assertEqual(session.last_route_rtt_ms, 250.0)
         self.assertLess(session.webrtc_scale, session.requested_scale)
+        self.assertEqual(session.target_fps, 15)
         self.assertTrue(server.webrtc.degraded[-1])
 
     async def test_reliable_channel_executes_and_acknowledges_input(self):

@@ -76,7 +76,10 @@
   let videoCallbackGeneration = 0;
   let lastPacketsReceived = 0;
   let lastPacketsLost = 0;
-  let stalledMediaReports = 0;
+  let lastDecodedFrames = 0;
+  let lastMediaProgressAt = performance.now();
+  let lastControlRttMs = 0;
+  let mobileDefaultsApplied = false;
   let activeTypingRequest = null;
   let pointerDataChannel = null;
   let controlDataChannel = null;
@@ -215,6 +218,18 @@
       iceServers = Array.isArray(msg.ice_servers) ? msg.ice_servers : [];
       routeSamples = 0;
       routeBenchmark = { directRtt: null, relayTried: false, finalized: false };
+      if (
+        !mobileDefaultsApplied
+        && window.matchMedia?.("(pointer: coarse)").matches
+        && Math.min(window.innerWidth, window.innerHeight) < 1024
+      ) {
+        // A phone decoder and Wi-Fi radio benefit more from bounded latency
+        // than from desktop-sized detail. The user can still raise either
+        // setting after the connection proves healthy.
+        qualitySelect.value = "low";
+        fpsSelect.value = "15";
+        mobileDefaultsApplied = true;
+      }
       // Try WebRTC on every modern browser, including Windows viewers of a Mac
       // host. The previous unconditional Windows->Mac JPEG fallback caused
       // multi-second latency on routed/campus Wi-Fi. Runtime stall detection
@@ -327,6 +342,7 @@
       authError.textContent = msg.message || "Invalid PIN. Try again.";
     } else if (msg.type === "pong") {
       const rtt = Math.round(performance.now() - msg.time);
+      lastControlRttMs = rtt;
       statPing.textContent = `${rtt} ms`;
     }
   }
@@ -611,11 +627,11 @@
         lastPacketsReceived = received;
         lastPacketsLost = lost;
         const renderedFps = report.framesPerSecond || 0;
-        if (renderedFps < 1) {
-          stalledMediaReports++;
-        } else {
-          stalledMediaReports = 0;
+        const decodedFrames = report.framesDecoded || report.framesReceived || 0;
+        if (decodedFrames > lastDecodedFrames) {
+          lastMediaProgressAt = performance.now();
         }
+        lastDecodedFrames = Math.max(lastDecodedFrames, decodedFrames);
         ws.send(JSON.stringify({
           type: "media_stats",
           packetLoss: lostDelta / total,
@@ -623,13 +639,15 @@
           fps: renderedFps,
           framesDropped: report.framesDropped || 0,
           routeRtt: Number.isFinite(routeRtt) ? routeRtt : null,
-          routeType
+          routeType,
+          controlRttMs: lastControlRttMs
         }));
         maybeBenchmarkRoute(routeRtt, routeType);
-        if (stalledMediaReports >= 2) {
-          stalledMediaReports = 0;
-          transportSelect.value = "jpeg";
-          stopWebRTC();
+        if (performance.now() - lastMediaProgressAt > 7000) {
+          // Keep the low-bandwidth H.264 path and renegotiate it. Falling
+          // directly to full-frame JPEG under congestion compounds the queue.
+          lastMediaProgressAt = performance.now();
+          restartWebRTCWithPolicy(activeIcePolicy);
         }
         break;
       }
@@ -693,6 +711,7 @@
         videoFrameCallbackActive = false;
         return;
       }
+      lastMediaProgressAt = performance.now();
       trackFps();
       screenVideo.requestVideoFrameCallback(onFrame);
     };
@@ -712,7 +731,8 @@
     });
     lastPacketsReceived = 0;
     lastPacketsLost = 0;
-    stalledMediaReports = 0;
+    lastDecodedFrames = 0;
+    lastMediaProgressAt = performance.now();
     peerConnection = connection;
     pointerDataChannel = connection.createDataChannel("projectx-pointer", {
       ordered: false,
