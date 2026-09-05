@@ -879,11 +879,14 @@ class RemoteServer:
             )
             if session.media_report_count % 3 == 0:
                 logger.info(
-                    "Client media: %.1f FPS, %.1f ms jitter, %.2f%% loss, scale %.2f",
+                    "Client media: %.1f FPS, %.1f ms jitter, %.2f%% loss, "
+                    "%.1f ms control RTT, scale %.2f, target %d FPS",
                     rendered_fps,
                     jitter * 1000,
                     packet_loss * 100,
+                    session.last_control_rtt_ms or 0.0,
                     session.webrtc_scale,
+                    session.target_fps,
                 )
             await ws.send_json({
                 "type": "adaptive_quality",

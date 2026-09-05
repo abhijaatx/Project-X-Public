@@ -62,15 +62,15 @@ class WebRTCMediaTests(unittest.TestCase):
         encoder.allow_bitrate_downshift = True
         with patch("webrtc_media.time.monotonic", return_value=10.0):
             encoder.target_bitrate = 1_000_000
-        self.assertEqual(encoder.target_bitrate, 1_625_000)
+        self.assertEqual(encoder.target_bitrate, 1_000_000)
 
         with patch("webrtc_media.time.monotonic", return_value=12.0):
-            encoder.target_bitrate = 3_500_000
-        self.assertEqual(encoder.target_bitrate, 1_625_000)
+            encoder.target_bitrate = 2_000_000
+        self.assertEqual(encoder.target_bitrate, 1_000_000)
 
         with patch("webrtc_media.time.monotonic", return_value=19.0):
-            encoder.target_bitrate = 3_500_000
-        self.assertEqual(encoder.target_bitrate, 1_950_000)
+            encoder.target_bitrate = 2_000_000
+        self.assertEqual(encoder.target_bitrate, 1_200_000)
 
     def test_bitrate_ignores_conservative_startup_remb(self):
         encoder = VideoToolboxH264Encoder()
@@ -81,19 +81,19 @@ class WebRTCMediaTests(unittest.TestCase):
     def test_windows_bitrate_adapts_without_recreating_on_every_report(self):
         encoder = WindowsH264Encoder(codec_name="libx264")
         encoder.allow_bitrate_downshift = True
-        self.assertEqual(encoder.target_bitrate, 6_000_000)
+        self.assertEqual(encoder.target_bitrate, 2_000_000)
 
         with patch("webrtc_media.time.monotonic", return_value=10.0):
             encoder.target_bitrate = 1_000_000
-        self.assertEqual(encoder.target_bitrate, 3_900_000)
+        self.assertEqual(encoder.target_bitrate, 1_300_000)
 
         # Recovery is intentionally slower than a downshift.
         with patch("webrtc_media.time.monotonic", return_value=12.0):
-            encoder.target_bitrate = 8_000_000
-        self.assertEqual(encoder.target_bitrate, 3_900_000)
+            encoder.target_bitrate = 4_000_000
+        self.assertEqual(encoder.target_bitrate, 1_300_000)
         with patch("webrtc_media.time.monotonic", return_value=19.0):
-            encoder.target_bitrate = 8_000_000
-        self.assertEqual(encoder.target_bitrate, 4_680_000)
+            encoder.target_bitrate = 4_000_000
+        self.assertEqual(encoder.target_bitrate, 1_560_000)
 
     def test_windows_x264_fallback_packetizes_low_delay_h264(self):
         encoder = WindowsH264Encoder(codec_name="libx264")

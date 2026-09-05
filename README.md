@@ -49,7 +49,7 @@ folder because macOS privacy permissions are tied to that exact application copy
 - Bounded latest-frame back-pressure: slow links drop stale JPEG frames instead
   of waiting a full render round-trip before sending the next one
 - WebRTC DataChannels for low-latency pointer, click, and keyboard input
-- Adaptive 0.8–3.5 Mbps VideoToolbox bitrate with true 15/30 FPS pacing
+- Adaptive 0.5–2.0 Mbps VideoToolbox bitrate with true 15/30 FPS pacing
 - Shared VideoToolbox frame encoding for viewers using the same media profile
 - Multiple displays, including displays positioned left or above the primary one
 - Mouse, keyboard, scrolling, clipboard, file transfer, and host camera streaming

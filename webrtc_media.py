@@ -145,9 +145,9 @@ class _SharedVideoToolboxState:
 class VideoToolboxH264Encoder(H264Encoder):
     """aiortc-compatible H.264 packetizer backed by Apple's VideoToolbox."""
 
-    MIN_BITRATE = 800_000
-    INITIAL_BITRATE = 2_500_000
-    MAX_BITRATE = 3_500_000
+    MIN_BITRATE = 500_000
+    INITIAL_BITRATE = 1_200_000
+    MAX_BITRATE = 2_000_000
     DOWNSHIFT_INTERVAL = 1.0
     UPSHIFT_INTERVAL = 8.0
     CACHE_FRAMES = 8
@@ -322,9 +322,9 @@ class VideoToolboxH264Encoder(H264Encoder):
 class WindowsH264Encoder(H264Encoder):
     """Stable low-delay H.264 with NVIDIA/Intel/AMD/MF probing and x264 fallback."""
 
-    MIN_BITRATE = 1_000_000
-    INITIAL_BITRATE = 6_000_000
-    MAX_BITRATE = 8_000_000
+    MIN_BITRATE = 750_000
+    INITIAL_BITRATE = 2_000_000
+    MAX_BITRATE = 4_000_000
     DOWNSHIFT_INTERVAL = 1.0
     UPSHIFT_INTERVAL = 8.0
 
