@@ -3,13 +3,13 @@ Project X Windows bootstrapper.
 
 This script is intentionally self-contained so it can be downloaded and run
 from a fresh PowerShell session. It installs only the two public prerequisites
-when they are missing, keeps the checkout in %USERPROFILE%\Project-X, and then
+when they are missing, keeps the checkout in %USERPROFILE%\Project-X-Public, and then
 hands off to the versioned host code.
 #>
 
 [CmdletBinding()]
 param(
-    [string]$ProjectDir = (Join-Path $env:USERPROFILE "Project-X"),
+    [string]$ProjectDir = (Join-Path $env:USERPROFILE "Project-X-Public"),
     [string]$Repository = "https://github.com/abhijaatx/Project-X-Public.git",
     [string]$Pin = "",
     [int]$Port = 5001
@@ -32,6 +32,21 @@ function Find-Executable([string[]]$Names) {
         }
     }
     return $null
+}
+
+function Test-Python([string]$Executable, [string[]]$PrefixArgs = @()) {
+    if (-not $Executable) {
+        return $false
+    }
+    try {
+        & $Executable @PrefixArgs -c `
+            "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" `
+            *> $null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        # This also rejects the Windows Store python.exe application alias.
+        return $false
+    }
 }
 
 function Install-WingetPackage([string]$Id) {
@@ -60,12 +75,16 @@ if (-not $git) {
 
 $pythonLauncher = Find-Executable @("py.exe", "py")
 $python = Find-Executable @("python.exe", "python")
-if (-not $pythonLauncher -and -not $python) {
+$pythonLauncherReady = Test-Python $pythonLauncher @("-3")
+$pythonReady = Test-Python $python
+if (-not $pythonLauncherReady -and -not $pythonReady) {
     Install-WingetPackage "Python.Python.3.12"
     $pythonLauncher = Find-Executable @("py.exe", "py")
     $python = Find-Executable @("python.exe", "python")
+    $pythonLauncherReady = Test-Python $pythonLauncher @("-3")
+    $pythonReady = Test-Python $python
 }
-if (-not $pythonLauncher -and -not $python) {
+if (-not $pythonLauncherReady -and -not $pythonReady) {
     throw "Python was not found after installation. Open a new PowerShell session and retry."
 }
 
@@ -102,7 +121,7 @@ Set-Location $ProjectDir
 $venvPython = Join-Path $ProjectDir ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
     Write-Host "[Project X] Creating the Python environment..."
-    if ($pythonLauncher) {
+    if ($pythonLauncherReady) {
         & $pythonLauncher -3.12 -m venv (Join-Path $ProjectDir ".venv")
         if ($LASTEXITCODE -ne 0) {
             & $pythonLauncher -3 -m venv (Join-Path $ProjectDir ".venv")

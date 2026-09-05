@@ -112,14 +112,14 @@ Run it from PowerShell (a prompt beginning with `PS`).
 If Git and Python are already installed, the manual equivalent is:
 
 ```powershell
-$projectDir = Join-Path $env:USERPROFILE "Project-X"; if (-not (Test-Path (Join-Path $projectDir ".git"))) { git clone https://github.com/abhijaatx/Project-X-Public.git $projectDir }; Set-Location $projectDir; .\run-windows-lan.bat
+$projectDir = Join-Path $env:USERPROFILE "Project-X-Public"; if (-not (Test-Path (Join-Path $projectDir ".git"))) { git clone https://github.com/abhijaatx/Project-X-Public.git $projectDir }; Set-Location $projectDir; .\run-windows-lan.bat
 ```
 
 From **Command Prompt** instead of PowerShell, use this one line when Git and
 Python are already installed:
 
 ```bat
-git clone https://github.com/abhijaatx/Project-X-Public.git "%USERPROFILE%\Project-X" && cd /d "%USERPROFILE%\Project-X" && run-windows-lan.bat
+git clone https://github.com/abhijaatx/Project-X-Public.git "%USERPROFILE%\Project-X-Public" && cd /d "%USERPROFILE%\Project-X-Public" && run-windows-lan.bat
 ```
 
 From a terminal, the equivalent commands are:
