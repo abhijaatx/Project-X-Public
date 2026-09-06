@@ -479,6 +479,16 @@ if sys.platform == "darwin":
             except Exception:
                 logger.exception("ScreenCaptureKit frame callback failed")
 
+    class _ScreenCaptureDelegate(NSObject):
+        def initWithOwner_(self, owner):
+            self = objc.super(_ScreenCaptureDelegate, self).init()
+            if self is not None:
+                self.owner = owner
+            return self
+
+        def stream_didStopWithError_(self, _stream, error):
+            self.owner.capture_stopped(error)
+
     class _ScreenCaptureKitStream:
         def __init__(self, display, monitor: MonitorGeometry, fps: int):
             self.display = display
@@ -486,13 +496,29 @@ if sys.platform == "darwin":
             self.fps = fps
             self.store = _LatestFrameStore(monitor)
             self.output = None
+            self.delegate = None
             self.stream = None
             self.sample_queue = None
             self.is_idle = False
             self.non_idle_statuses = 0
             self.last_status_at = time.perf_counter()
+            self.interrupted = threading.Event()
+            self.stop_requested = False
+            self.last_error = None
+
+        def capture_stopped(self, error):
+            if self.stop_requested:
+                return
+            self.last_error = error
+            self.is_idle = False
+            self.last_status_at = time.perf_counter()
+            self.interrupted.set()
+            logger.warning("ScreenCaptureKit was interrupted: %s", error)
 
         def start(self):
+            self.interrupted.clear()
+            self.stop_requested = False
+            self.last_error = None
             content_filter = SCContentFilter.alloc().initWithDisplay_excludingWindows_(
                 self.display, []
             )
@@ -510,9 +536,10 @@ if sys.platform == "darwin":
                 configuration.setShouldBeOpaque_(True)
 
             self.output = _ScreenCaptureOutput.alloc().initWithOwner_(self)
+            self.delegate = _ScreenCaptureDelegate.alloc().initWithOwner_(self)
             self.sample_queue = _serial_capture_queue(self.monitor.id)
             self.stream = SCStream.alloc().initWithFilter_configuration_delegate_(
-                content_filter, configuration, None
+                content_filter, configuration, self.delegate
             )
             added, error = self.stream.addStreamOutput_type_sampleHandlerQueue_error_(
                 self.output,
@@ -547,6 +574,13 @@ if sys.platform == "darwin":
         def stop(self):
             if self.stream is None:
                 return
+            self.stop_requested = True
+            if self.interrupted.is_set():
+                self.stream = None
+                self.output = None
+                self.delegate = None
+                self.sample_queue = None
+                return
             stopped = threading.Event()
 
             def completion(error):
@@ -558,6 +592,7 @@ if sys.platform == "darwin":
             stopped.wait(2)
             self.stream = None
             self.output = None
+            self.delegate = None
             self.sample_queue = None
 
 
@@ -668,6 +703,12 @@ class SharedCaptureHub:
         timeout: float,
     ):
         stream = self._stream(monitor_id)
+        interrupted = getattr(stream, "interrupted", None)
+        if interrupted is not None and interrupted.is_set():
+            stream = self._restart_stalled_stream(monitor_id, stream)
+            if stream is None:
+                return None, None
+            return stream, stream.store.wait(0, max(2.0, timeout))
         # Sequence numbers restart with a recovered producer. A consumer still
         # holding the old sequence must accept the first frame immediately.
         if after_sequence > stream.store.sequence:
@@ -688,15 +729,13 @@ class SharedCaptureHub:
             self.STALL_SECONDS_BEFORE_RESTART,
             timeout * self.STALL_MISSES_BEFORE_RESTART,
         )
-        # ScreenCaptureKit emits an explicit Idle status when the display has
-        # not changed. No complete frame is expected in that state, so frame
-        # age alone is not evidence of a stalled producer. A non-idle status
-        # clears the exemption and preserves recovery for suspended, stopped,
-        # blank, or otherwise unhealthy streams.
+        # Any recent ScreenCaptureKit status callback proves that the producer
+        # is alive. In particular, macOS emits non-complete/blank statuses for
+        # protected content; repeatedly tearing down that healthy stream makes
+        # the rest of the desktop unavailable too. Genuine stream termination
+        # is handled immediately by the SCStream delegate above.
         if (
-            getattr(stream, "is_idle", False)
-            and getattr(stream, "non_idle_statuses", 0) == 0
-            and time.perf_counter()
+            time.perf_counter()
             - getattr(stream, "last_status_at", float("-inf"))
             < stall_threshold
         ):

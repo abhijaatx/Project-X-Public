@@ -184,6 +184,59 @@ class SharedCaptureTests(unittest.TestCase):
         self.assertIs(stream, replacement)
         self.assertEqual(int(snapshot.bgra[0, 0, 0]), 83)
 
+    def test_recent_non_complete_status_does_not_restart_live_stream(self):
+        class FakeStream:
+            def __init__(self, monitor):
+                self.store = _LatestFrameStore(monitor)
+                self.is_idle = False
+                self.non_idle_statuses = 8
+                self.last_status_at = time.perf_counter()
+
+        live = FakeStream(self.monitor)
+        live.store.publish(np.zeros((480, 640, 4), dtype=np.uint8))
+        live.store.captured_at = time.perf_counter() - 5
+
+        hub = SharedCaptureHub.__new__(SharedCaptureHub)
+        hub.fps = 30
+        hub.lock = threading.Lock()
+        hub.restart_lock = threading.Lock()
+        hub.streams = {1: live}
+        hub._stream = lambda _monitor_id: live
+        restarts = []
+        hub._restart_stalled_stream = (
+            lambda _monitor_id, _stream: restarts.append(True)
+        )
+
+        stream, snapshot = hub._wait_with_recovery(1, 1, 0.001)
+
+        self.assertIs(stream, live)
+        self.assertIsNone(snapshot)
+        self.assertEqual(restarts, [])
+
+    def test_explicit_capture_interruption_restarts_immediately(self):
+        class FakeStream:
+            def __init__(self, monitor, value):
+                self.store = _LatestFrameStore(monitor)
+                self.interrupted = threading.Event()
+                self.store.publish(np.full((480, 640, 4), value, dtype=np.uint8))
+
+        interrupted = FakeStream(self.monitor, 0)
+        interrupted.interrupted.set()
+        replacement = FakeStream(self.monitor, 91)
+
+        hub = SharedCaptureHub.__new__(SharedCaptureHub)
+        hub.fps = 30
+        hub.lock = threading.Lock()
+        hub.restart_lock = threading.Lock()
+        hub.streams = {1: interrupted}
+        hub._stream = lambda _monitor_id: interrupted
+        hub._restart_stalled_stream = lambda _monitor_id, _stream: replacement
+
+        stream, snapshot = hub._wait_with_recovery(1, 1, 0.001)
+
+        self.assertIs(stream, replacement)
+        self.assertEqual(int(snapshot.bgra[0, 0, 0]), 91)
+
 
 if __name__ == "__main__":
     unittest.main()
