@@ -739,11 +739,11 @@
     lastDecodedFrames = 0;
     lastMediaProgressAt = performance.now();
     peerConnection = connection;
-    pointerDataChannel = connection.createDataChannel("projectx-pointer", {
+    pointerDataChannel = connection.createDataChannel("dc0", {
       ordered: false,
       maxRetransmits: 0
     });
-    controlDataChannel = connection.createDataChannel("projectx-control", {
+    controlDataChannel = connection.createDataChannel("dc1", {
       ordered: true
     });
     controlDataChannel.onmessage = (event) => {
@@ -1381,9 +1381,9 @@
       typeTextStatus.textContent = "Ctrl/⌘ + Enter to send";
       typeTextStatus.classList.remove("is-error");
       try {
-        const savedCodeMode = localStorage.getItem("projectXCodeSafeMode");
+        const savedCodeMode = localStorage.getItem("app_csm");
         typeCodeMode.checked = savedCodeMode === null ? true : savedCodeMode === "true";
-        const savedSpeed = Number(localStorage.getItem("webremoteTypingSpeed"));
+        const savedSpeed = Number(localStorage.getItem("app_ts"));
         if (savedCodeMode === null) {
           typeSpeedInput.value = "40";
         } else if (Number.isInteger(savedSpeed) && savedSpeed >= 1 && savedSpeed <= 1000) {
@@ -1401,7 +1401,7 @@
       const speed = Math.max(1, Math.min(1000, Math.round(Number(typeSpeedInput.value) || 300)));
       typeSpeedInput.value = String(speed);
       try {
-        localStorage.setItem("webremoteTypingSpeed", String(speed));
+        localStorage.setItem("app_ts", String(speed));
       } catch (_) {
         // Preference persistence is optional.
       }
@@ -1414,8 +1414,8 @@
         ? "1–120 in Code-Safe Mode · 40 recommended"
         : "1–1000 · intended for ordinary prose";
       try {
-        localStorage.setItem("projectXCodeSafeMode", String(typeCodeMode.checked));
-        localStorage.setItem("webremoteTypingSpeed", typeSpeedInput.value);
+        localStorage.setItem("app_csm", String(typeCodeMode.checked));
+        localStorage.setItem("app_ts", typeSpeedInput.value);
       } catch (_) {
         // Preference persistence is optional.
       }
@@ -1594,7 +1594,7 @@
   // old left + translateX interaction that made the dock jump while dragging.
   const dockMoveHandle = toolbar.querySelector(".toolbar-drag-handle");
   const dockResizeHandle = toolbar.querySelector(".toolbar-resize-handle");
-  const DOCK_LAYOUT_KEY = "webremote_dock_layout_v2";
+  const DOCK_LAYOUT_KEY = "app_layout_v2";
   const DOCK_MARGIN = 8;
   let dockInteraction = null;
   let dockAnimationFrame = 0;
@@ -1783,11 +1783,11 @@
   }
 
   // Check if PIN already saved in localStorage for quick reconnect
-  const savedPin = localStorage.getItem("webremote_pin");
+  const savedPin = localStorage.getItem("app_key");
   if (savedPin) {
     pinInput.value = savedPin;
   }
   pinInput.addEventListener("input", () => {
-    localStorage.setItem("webremote_pin", pinInput.value);
+    localStorage.setItem("app_key", pinInput.value);
   });
 })();

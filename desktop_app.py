@@ -362,14 +362,14 @@ class ProjectXController:
                 self._refresh()
 
     def _handle_output_line(self, line):
-        if line == "PROJECTX_PERMISSION_REQUIRED:screen_recording":
+        if line == "APP_PERM:screen_recording":
             self.status = "Screen Recording permission required"
             self._notify(
                 "Enable Screen Recording for Project X, then quit and reopen the app."
             )
             self._refresh()
             return
-        if line == "PROJECTX_PERMISSION_REQUIRED:accessibility":
+        if line == "APP_PERM:accessibility":
             self.missing_accessibility = True
             self._notify(
                 "Enable Accessibility for Project X to use remote mouse and keyboard control."

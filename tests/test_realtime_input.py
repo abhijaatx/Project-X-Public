@@ -137,7 +137,7 @@ class RealtimeInputTests(unittest.IsolatedAsyncioTestCase):
         )
 
         class Channel:
-            label = "projectx-control"
+            label = "dc1"
             readyState = "open"
 
             def __init__(self):
@@ -164,7 +164,7 @@ class RealtimeInputTests(unittest.IsolatedAsyncioTestCase):
         server = SimpleNamespace(handle_input_message=handler)
         session = SimpleNamespace(authenticated=True, control_ws=object())
         channel = SimpleNamespace(
-            label="projectx-pointer",
+            label="dc0",
             readyState="open",
             send=lambda _message: None,
         )

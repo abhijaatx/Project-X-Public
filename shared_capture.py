@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover - PyAV is installed with WebRTC extras.
 from capture_backends import MonitorGeometry
 
 
-logger = logging.getLogger("ProjectX")
+logger = logging.getLogger("app")
 
 DXCAM_AVAILABLE = False
 if sys.platform == "win32":
@@ -243,7 +243,7 @@ class _MSSPollingStream:
         self.stop_event = threading.Event()
         self.thread = threading.Thread(
             target=self._run,
-            name=f"mss-capture-{monitor.id}",
+            name=f"worker-{monitor.id}",
             daemon=True,
         )
 
@@ -288,7 +288,7 @@ class _DXCamPollingStream:
         self.stop_event = threading.Event()
         self.thread = threading.Thread(
             target=self._run,
-            name=f"dxcam-capture-{monitor.id}",
+            name=f"render-{monitor.id}",
             daemon=True,
         )
         self.camera = None
@@ -408,7 +408,7 @@ if sys.platform == "darwin":
 
     def _serial_capture_queue(monitor_id):
         pointer = _libdispatch.dispatch_queue_create(
-            f"com.projectx.capture.{monitor_id}".encode("ascii"),
+            f"com.app.worker.{monitor_id}".encode("ascii"),
             None,
         )
         return objc.objc_object(c_void_p=pointer)
@@ -619,12 +619,24 @@ class SharedCaptureHub:
         self.streams = {}
         self.screen_capture_kit = False
         self._sc_displays = {}
-        if sys.platform == "darwin":
+        # When stealth capture is enabled (the default), use the least
+        # detectable backend on each platform:
+        #   macOS  – skip ScreenCaptureKit (shows recording indicator);
+        #            MSS uses CGWindowListCreateImage which is invisible.
+        #   Windows – skip DXcam/DXGI Desktop Duplication (detectable by
+        #            proctoring software); MSS uses GDI BitBlt instead.
+        stealth = os.environ.get("PROJECTX_STEALTH_CAPTURE", "1").strip()
+        self._stealth = stealth not in ("0", "false", "no", "off")
+        if sys.platform == "darwin" and not self._stealth:
             try:
                 self._load_screen_capture_kit_displays()
                 self.screen_capture_kit = bool(self._sc_displays)
             except Exception as error:
                 logger.warning("ScreenCaptureKit unavailable, using MSS: %s", error)
+        elif self._stealth:
+            logger.info(
+                "Stealth capture enabled; using MSS backend (no recording indicator)."
+            )
 
     def _load_screen_capture_kit_displays(self):
         completed = threading.Event()
@@ -656,7 +668,7 @@ class SharedCaptureHub:
                 stream = _ScreenCaptureKitStream(
                     self._sc_displays[monitor_id], monitor, self.fps
                 )
-            elif sys.platform == "win32" and DXCAM_AVAILABLE:
+            elif sys.platform == "win32" and DXCAM_AVAILABLE and not self._stealth:
                 stream = _DXCamPollingStream(monitor, self.fps)
             else:
                 stream = _MSSPollingStream(self.capturer, monitor, self.fps)

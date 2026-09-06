@@ -24,7 +24,7 @@ import aiortc.codecs
 from aiortc.codecs.h264 import H264Encoder, VIDEO_TIME_BASE, convert_timebase
 
 
-logger = logging.getLogger("ProjectX")
+logger = logging.getLogger("app")
 
 
 def _candidate_address(line: str):

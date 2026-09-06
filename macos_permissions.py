@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 
-logger = logging.getLogger("ProjectX")
+logger = logging.getLogger("app")
 
 
 def _screen_capture_access(request: bool) -> bool:

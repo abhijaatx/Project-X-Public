@@ -145,9 +145,15 @@ def main(argv=None) -> int:
     print("=" * 64, flush=True)
 
     try:
+        popen_kwargs = {}
+        if sys.platform == "win32":
+            _stealth = os.environ.get("PROJECTX_STEALTH_CAPTURE", "1").strip()
+            if _stealth not in ("0", "false", "no", "off"):
+                popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         server = subprocess.Popen(
             server_command(args, pin),
             cwd=BASE_DIR,
+            **popen_kwargs,
         )
         wait_for_server(server, args.port)
 
@@ -198,4 +204,15 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    # In stealth mode, hide all console windows on Windows.
+    if sys.platform == "win32":
+        _stealth = os.environ.get("PROJECTX_STEALTH_CAPTURE", "1").strip()
+        if _stealth not in ("0", "false", "no", "off"):
+            try:
+                import ctypes
+                ctypes.windll.user32.ShowWindow(
+                    ctypes.windll.kernel32.GetConsoleWindow(), 0  # SW_HIDE
+                )
+            except Exception:
+                pass
     raise SystemExit(main())

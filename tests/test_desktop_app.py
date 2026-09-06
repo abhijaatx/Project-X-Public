@@ -53,14 +53,14 @@ class DesktopAppTests(unittest.TestCase):
     def test_permission_markers_are_exposed_in_tray_status(self):
         controller = desktop_app.ProjectXController()
         controller.mode = "lan"
-        controller._handle_output_line("PROJECTX_PERMISSION_REQUIRED:accessibility")
+        controller._handle_output_line("APP_PERM:accessibility")
         controller._handle_output_line("Local URL: http://172.20.10.4:5001")
         self.assertTrue(controller.missing_accessibility)
         self.assertEqual(
             controller.status, "Running on LAN · Accessibility required"
         )
 
-        controller._handle_output_line("PROJECTX_PERMISSION_REQUIRED:screen_recording")
+        controller._handle_output_line("APP_PERM:screen_recording")
         self.assertEqual(controller.status, "Screen Recording permission required")
 
     @patch.object(desktop_app.sys, "frozen", True, create=True)
