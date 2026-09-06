@@ -78,6 +78,36 @@ environment, installs dependencies, and launches the host.
 For the lowest latency on the same network, double-click
 `run-macos-lan.command`, then connect to the displayed LAN address on port 5001.
 
+### Start automatically at login
+
+To run the LAN host in the background at every macOS login, run this command
+from any terminal. Replace `YOUR_PIN` with a password of up to eight characters:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/abhijaatx/Project-X-Public/main/scripts/install-macos-login.sh | bash -s -- --pin "YOUR_PIN"
+```
+
+The installer keeps its unattended checkout under
+`~/Library/Application Support/Project X/source`, outside macOS-protected
+Documents and Desktop folders. It creates a per-user LaunchAgent, installs
+dependencies, starts the host immediately on port 5001, restarts it after
+crashes, and writes logs to `~/Library/Logs/Project X/`. The PIN is stored in a
+user-readable-only LaunchAgent file. Pass `--project-dir "/full/path"` only if
+you intentionally want the service to use a different checkout.
+
+To stop the host and remove launch-at-login without deleting its source or logs:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/abhijaatx/Project-X-Public/main/scripts/uninstall-macos-login.sh | bash
+```
+
+To restart it after changing code, or check its status:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/com.abhijaat.project-x-host"
+launchctl print "gui/$(id -u)/com.abhijaat.project-x-host"
+```
+
 On first launch, macOS will request **Screen Recording** permission. Remote mouse
 and keyboard control also require **Accessibility** permission. Host audio requires
 **Microphone** permission, requested only after you press **Listen**. Grant these to
